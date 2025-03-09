@@ -1,10 +1,11 @@
+import copy
+import math
+from typing import Callable
+
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
-import math
 import torch.nn.functional as F
-from typing import Callable
-import copy
-import matplotlib.pyplot as plt
 
 
 class NIGnet(nn.Module):
@@ -45,15 +46,15 @@ class NIGnet(nn.Module):
         Adds skip connections similar to those used in ResNet architecture.
     """
 
-    available_intersection_modes = ['possible', 'impossible']
+    available_intersection_modes = ["possible", "impossible"]
 
     def __init__(
         self,
         layer_count: int,
         act_fn: Callable[[], nn.Module] = None,
         monotonic_net: nn.Module = None,
-        preaux_net = None,
-        intersection: str = 'possible',
+        preaux_net=None,
+        intersection: str = "possible",
         skip_connections: bool = True,
         geometry_dim: int = 2
     ) -> None:
@@ -72,7 +73,7 @@ class NIGnet(nn.Module):
 
         if (act_fn is None) and (monotonic_net is None):
             raise ValueError(
-                'Either an activation function or a monotonic network must be specified.'
+                "Either an activation function or a monotonic network must be specified."
             )
         if (act_fn is not None) and (monotonic_net is not None):
             raise ValueError('Only one of "act_fn" or "monotonic_net" can be specified.')
@@ -83,8 +84,8 @@ class NIGnet(nn.Module):
         self.preaux_net = copy.deepcopy(preaux_net)
 
         if intersection not in self.available_intersection_modes:
-            raise ValueError(f'Invalid intersection mode. ' \
-                             f'Choose from {self.available_intersection_modes}')
+            raise ValueError(f"Invalid intersection mode. "
+                             f"Choose from {self.available_intersection_modes}")
         self.intersection = intersection
 
         self.skip_connections = skip_connections
@@ -106,8 +107,8 @@ class NIGnet(nn.Module):
                 torch.cos(torch.pi * s)
                 ])
 
-        Linear_class = nn.Linear if intersection == 'possible' else ExpLinear
-        
+        linear_class = nn.Linear if intersection == "possible" else ExpLinear
+
         self.linear_layers = nn.ModuleList()
         self.act_layers = nn.ModuleList()
 
@@ -116,18 +117,17 @@ class NIGnet(nn.Module):
         self.alphas = nn.ParameterList()
 
         for i in range(layer_count):
-            self.linear_layers.append(Linear_class(geometry_dim, geometry_dim))
+            self.linear_layers.append(linear_class(geometry_dim, geometry_dim))
             if act_fn is not None:
                 self.act_layers.append(act_fn())
             else:
                 self.act_layers.append(copy.deepcopy(monotonic_net))
-            
+
             self.alphas.append(nn.Parameter(torch.tensor(1.0)))
-        
-        self.final_linear = Linear_class(geometry_dim, geometry_dim)
 
+        self.final_linear = linear_class(geometry_dim, geometry_dim)
 
-    def forward(self, T: torch.Tensor) -> torch.Tensor:
+    def forward(self, T: torch.Tensor) -> torch.Tensor:    # noqa: N803
         """
         Perform the forward pass of the NIGnet.
 
@@ -136,7 +136,7 @@ class NIGnet(nn.Module):
         t : torch.Tensor
             A tensor of shape (N, 1) with values in [0, 1] representing the parameter for the simple
             closed curve.
-        
+
         Returns
         -------
         torch.Tensor
@@ -146,37 +146,37 @@ class NIGnet(nn.Module):
 
         if self.geometry_dim == 2:
             t = T
-            X = self.closed_transform(t)
+            X = self.closed_transform(t)  # noqa: N806
         elif self.geometry_dim == 3:
             t, s = T[:, 0:1], T[:, 1:2]
-            X = self.closed_transform(t, s)
+            X = self.closed_transform(t, s)  # noqa: N806
 
         for i, (linear_layer, act_layer) in enumerate(zip(self.linear_layers, self.act_layers)):
             # Apply linear transformation
-            X = linear_layer(X)
+            X = linear_layer(X)  # noqa: N806
 
             if self.skip_connections:
-                residual = X
-            
+                residual = X  # noqa: N806
+
             if self.act_fn is not None:
-                X = act_layer(X)
+                X = act_layer(X)  # noqa: N806
             else:
                 if self.geometry_dim == 2:
-                    # Apply activation function or monotonic network to each component of x separately
+                    # Apply activation function or monotonic network
+                    # to each component of x separately
                     x1, x2 = X[:, 0:1], X[:, 1:2]
-                    X = torch.stack([act_layer(x1), act_layer(x2)], dim = -1)
+                    X = torch.stack([act_layer(x1), act_layer(x2)], dim=-1)  # noqa: N806
                 elif self.geometry_dim == 3:
                     x1, x2, x3 = X[:, 0:1], X[:, 1:2], X[:, 2:3]
-                    X = torch.stack([act_layer(x1), act_layer(x2), act_layer(x3)], dim = -1)
-            
+                    X = torch.stack([act_layer(x1), act_layer(x2), act_layer(x3)], dim=-1)  # noqa: N806
+
             if self.skip_connections:
                 alpha_sq = self.alphas[i] ** 2
-                X = (X + alpha_sq * residual) / 2.0
-        
-        X = self.final_linear(X)
+                X = (X + alpha_sq * residual) / 2.0  # noqa: N806
+
+        X = self.final_linear(X)  # noqa: N806
 
         return X
-
 
     def generate_noisy_shapes(
         self,
@@ -197,7 +197,7 @@ class NIGnet(nn.Module):
         num_pts : int, optional
             Number of points sampled along the curve, default is 1000.
         """
-        
+
         t = torch.linspace(0, 1, num_pts).reshape(-1, 1)
 
         # Compute original shape
@@ -211,31 +211,31 @@ class NIGnet(nn.Module):
             noisy_net = copy.deepcopy(self)
             for param in noisy_net.parameters():
                 param.data += torch.randn_like(param) * noise_amount
-            
+
             # Generate the noisy shape and store its x and y components separately
             noisy_shapes[i] = noisy_net(t).detach().cpu()
 
         # Compute the mean and standard deviation across noisy shapes
-        mean_shape = torch.mean(noisy_shapes, axis = 0)
-        std_shape = torch.std(noisy_shapes, axis = 0)
+        mean_shape = torch.mean(noisy_shapes, axis=0)
+        std_shape = torch.std(noisy_shapes, axis=0)
 
         # Create a 4x1 grid of subplots
-        fig, axes = plt.subplots(4, 1, figsize = (6, 24))
+        _, axes = plt.subplots(4, 1, figsize=(6, 24))
 
         # Common plot settings
         plot_kwargs = {
-            'original': {'color': 'k', 'lw': 3, 'label': 'Original Shape'},
-            'mean': {'color': 'r', 'lw': 1, 'ls': '--', 'label': 'Mean Shape'},
-            'fill': {'color': 'grey', 'alpha': 0.1},
+            "original": {"color": "k", "lw": 3, "label": "Original Shape"},
+            "mean": {"color": "r", "lw": 1, "ls": "--", "label": "Mean Shape"},
+            "fill": {"color": "grey", "alpha": 0.1},
         }
 
         # Subplot 1: Noisy shapes
         ax = axes[0]
         for shape in noisy_shapes:
-            ax.plot(shape[:, 0], shape[:, 1], alpha = 0.3, linewidth = 0.8)
-        ax.plot(original_shape[:, 0], original_shape[:, 1], **plot_kwargs['original'])
-        ax.plot(mean_shape[:, 0], mean_shape[:, 1], **plot_kwargs['mean'])
-        ax.set_title('Noisy Shapes')
+            ax.plot(shape[:, 0], shape[:, 1], alpha=0.3, linewidth=0.8)
+        ax.plot(original_shape[:, 0], original_shape[:, 1], **plot_kwargs["original"])
+        ax.plot(mean_shape[:, 0], mean_shape[:, 1], **plot_kwargs["mean"])
+        ax.set_title("Noisy Shapes")
 
         # Subplot 2: Mean ± Std Variation using fill_betweenx
         ax = axes[1]
@@ -243,39 +243,39 @@ class NIGnet(nn.Module):
             mean_shape[:, 1],
             mean_shape[:, 0] - std_shape[:, 0],
             mean_shape[:, 0] + std_shape[:, 0],
-            color = 'blue', alpha = 0.3, label = 'X Variation (Mean ± Std)'
+            color="blue", alpha=0.3, label="X Variation (Mean ± Std)"
         )
         ax.fill_between(
             mean_shape[:, 0],
             mean_shape[:, 1] - std_shape[:, 1],
             mean_shape[:, 1] + std_shape[:, 1],
-            color = 'green', alpha = 0.3, label = 'Y Variation (Mean ± Std)')
-        ax.plot(original_shape[:, 0], original_shape[:, 1], **plot_kwargs['original'])
-        ax.plot(mean_shape[:, 0], mean_shape[:, 1], **plot_kwargs['mean'])
-        ax.set_title('Mean ± Std Variation')
+            color="green", alpha=0.3, label="Y Variation (Mean ± Std)")
+        ax.plot(original_shape[:, 0], original_shape[:, 1], **plot_kwargs["original"])
+        ax.plot(mean_shape[:, 0], mean_shape[:, 1], **plot_kwargs["mean"])
+        ax.set_title("Mean ± Std Variation")
 
         # Subplot 3: Individual Filled Noisy Shapes
         ax = axes[2]
         for i in range(num_generations):
-            ax.fill(noisy_shapes[i, :, 0], noisy_shapes[i, :, 1], **plot_kwargs['fill'])
-        ax.plot(original_shape[:, 0], original_shape[:, 1], **plot_kwargs['original'])
-        ax.plot(mean_shape[:, 0], mean_shape[:, 1], **plot_kwargs['mean'])
-        ax.set_title('Noisy Shapes Filled')
+            ax.fill(noisy_shapes[i, :, 0], noisy_shapes[i, :, 1], **plot_kwargs["fill"])
+        ax.plot(original_shape[:, 0], original_shape[:, 1], **plot_kwargs["original"])
+        ax.plot(mean_shape[:, 0], mean_shape[:, 1], **plot_kwargs["mean"])
+        ax.set_title("Noisy Shapes Filled")
 
         # Subplot 4: Plot envelope
         ax = axes[3]
         for i in range(num_generations):
-            ax.fill(noisy_shapes[i, :, 0], noisy_shapes[i, :, 1], color = 'skyblue')
-        ax.plot(original_shape[:, 0], original_shape[:, 1], **plot_kwargs['original'])
-        ax.plot(mean_shape[:, 0], mean_shape[:, 1], **plot_kwargs['mean'])
-        ax.set_title('Noisy Shapes Envelope')
+            ax.fill(noisy_shapes[i, :, 0], noisy_shapes[i, :, 1], color="skyblue")
+        ax.plot(original_shape[:, 0], original_shape[:, 1], **plot_kwargs["original"])
+        ax.plot(mean_shape[:, 0], mean_shape[:, 1], **plot_kwargs["mean"])
+        ax.set_title("Noisy Shapes Envelope")
 
         for i in range(4):
             ax = axes[i]
-            ax.set_xlabel('x')
-            ax.set_ylabel('y')
-            ax.axis('equal')
-            ax.grid(True, alpha = 0.5)
+            ax.set_xlabel("x")
+            ax.set_ylabel("y")
+            ax.axis("equal")
+            ax.grid(True, alpha=0.5)
             ax.legend()
 
         plt.tight_layout()
@@ -312,28 +312,27 @@ class ExpLinear(nn.Module):
     def __init__(self, in_features: int, out_features: int, bias: bool = True) -> None:
         """
         Initialize the ExpLinear module.
-        
+
         Raises
         ------
         AssertionError
             If in_features != out_features.
         """
-        
+
         super().__init__()
 
-        assert in_features == out_features, 'ExpLinear requires in_features == out_features'
+        assert in_features == out_features, "ExpLinear requires in_features == out_features"
 
         self.in_features = in_features
         self.out_features = out_features
-        
+
         self.W = nn.Parameter(torch.Tensor(out_features, in_features))
         if bias:
             self.bias = nn.Parameter(torch.Tensor(out_features))
         else:
-            self.register_parameter('bias', None)
-        
+            self.register_parameter("bias", None)
+
         self.reset_parameters()
-    
 
     def reset_parameters(self) -> None:
         """
@@ -341,12 +340,11 @@ class ExpLinear(nn.Module):
         matrix, and a uniform distribution for the bias.
         """
 
-        nn.init.kaiming_uniform_(self.W, a = math.sqrt(5))
+        nn.init.kaiming_uniform_(self.W, a=math.sqrt(5))
         if self.bias is not None:
             fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.W)
             bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
             nn.init.uniform_(self.bias, -bound, bound)
-    
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -359,12 +357,12 @@ class ExpLinear(nn.Module):
         ----------
         x : torch.Tensor
             Input tensor of shape (N, in_features).
-        
+
         Returns
         -------
         torch.Tensor
             Output tensor of shape (N, out_features)
         """
-        
+
         exp_weight = torch.matrix_exp(self.W)
         return F.linear(x, exp_weight.t(), self.bias)

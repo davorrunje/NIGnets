@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class MinMaxNet(nn.Module):
@@ -29,7 +28,7 @@ class MinMaxNet(nn.Module):
         These are exponentiated or left unconstrained in `forward()` based on `mono_signs`.
     biases : torch.nn.Parameter
         Bias terms for each node of shape (n_groups, nodes_per_group).
-    
+
     Parameters
     ----------
     input_dim : int
@@ -47,14 +46,14 @@ class MinMaxNet(nn.Module):
         If None, a list of all +1 is used (strictly increasing). The default is None.
     positivity_constraint : str
         The method used to ensure positivity of weights. E.g. squaring or exponentiating.
-    
+
     References
     ----------
     .. [1] Sill, J. (1997). Monotonic networks. Advances in neural information processing systems,
         10.
     """
 
-    available_positivity_constraints = ['squared', 'exponential']
+    available_positivity_constraints = ["squared", "exponential"]
 
     def __init__(
         self,
@@ -62,7 +61,7 @@ class MinMaxNet(nn.Module):
         n_groups: int,
         nodes_per_group: int,
         monotonicity: list = None,
-        positivity_constraint: str = 'squared'
+        positivity_constraint: str = "squared"
     ) -> None:
         """
         Constructs all the necessary attributes for the MinMaxNet.
@@ -83,24 +82,24 @@ class MinMaxNet(nn.Module):
         # If no monotonicity info is provided, assume increasing monotonicity for all inputs
         if monotonicity is None:
             monotonicity = [1] * input_dim
-        
+
         if len(monotonicity) != input_dim:
             raise ValueError(
-                f'Expected monotonicity to have length {input_dim}, got {len(monotonicity)}.'
+                f"Expected monotonicity to have length {input_dim}, got {len(monotonicity)}."
             )
-        
+
         if positivity_constraint not in self.available_positivity_constraints:
-            raise ValueError(f'Invalid positivity constraint. ' \
-                             f'Choose from {self.available_positivity_constraints}')
+            raise ValueError(f"Invalid positivity constraint. "
+                             f"Choose from {self.available_positivity_constraints}")
         self.positivity_constraint = positivity_constraint
-        
+
         # Convert monotonicity from list of -1, 0, 1 to actual signs
         # We store them in a buffer so that pytorch does not treat them as parameters
         self.register_buffer(
             "mono_signs",
-            torch.tensor(monotonicity, dtype = torch.float32).view(1, 1, -1)
+            torch.tensor(monotonicity, dtype=torch.float32).view(1, 1, -1)
         )
-        
+
         # raw_weights will be exponentiated in forward() for monotonicity constraints
         self.raw_weights = nn.Parameter(
             torch.empty(n_groups, nodes_per_group, input_dim)
@@ -110,7 +109,6 @@ class MinMaxNet(nn.Module):
         self.biases = nn.Parameter(
             torch.zeros(n_groups, nodes_per_group)
         )
-    
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -120,7 +118,7 @@ class MinMaxNet(nn.Module):
         ----------
         x : torch.Tensor
             Input tensor of shape (batch_size, input_dim).
-        
+
         Returns
         -------
         torch.Tensor
@@ -131,28 +129,28 @@ class MinMaxNet(nn.Module):
         # - If monotonic sign is +1, we use exp(raw_weights) / raw_weights**2 to force positivity
         # - If monotonic sign is -1, we use -exp(raw_weights) / -raw_weights**2 to force negativity
         # - If monotonic sign is 0, we use raw_weights and leave them unconstrained
-        if self.positivity_constraint == 'squared':
+        if self.positivity_constraint == "squared":
             w_pos = self.raw_weights ** 2
-        elif self.positivity_constraint == 'exponential':
+        elif self.positivity_constraint == "exponential":
             w_pos = torch.exp(self.raw_weights)
-        
+
         sign_matrix = torch.sign(self.mono_signs).expand_as(self.raw_weights)
         w_actual = torch.where(
             sign_matrix == 0,
             self.raw_weights,
             sign_matrix * w_pos
         )
-        
+
         x_expanded = x.unsqueeze(1).unsqueeze(1)    # (batch_size, 1, 1, input_dim)
         w_expanded = w_actual.unsqueeze(0)          # (1, n_groups, nodes_per_group, input_dim)
         bias_expanded = self.biases.unsqueeze(0)    # (1, n_groups, nodes_per_group)
 
-        lin = (x_expanded * w_expanded).sum(dim = -1)
+        lin = (x_expanded * w_expanded).sum(dim=-1)
         lin_out = lin + bias_expanded               # (batch_size, n_groups, nodes_per_group)
 
         # Within each group, take the max over nodes
-        group_out = lin_out.max(dim = 2).values     # (batch_size, n_groups)
+        group_out = lin_out.max(dim=2).values     # (batch_size, n_groups)
         # Take the min across groups
-        y = group_out.min(dim = 1).values           # (batch_size,)
+        y = group_out.min(dim=1).values           # (batch_size,)
 
         return y

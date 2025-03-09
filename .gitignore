@@ -5,3 +5,7 @@
 build/
 *.egg-info/
 dist/
+
+# virtal environment
+.venv*
+.env*
